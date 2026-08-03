@@ -1,0 +1,21 @@
+# Artifacts
+*.o
+*.so
+*.a
+*.lib
+*.cubin
+*.fatbin
+*.ptx
+build/
+dist/
+*.egg-info/
+
+# Python
+.pytest_cache/
+.venv/
+__pycache__/
+
+# Misc
+.DS_store
+.vscode
+*.ncu-rep

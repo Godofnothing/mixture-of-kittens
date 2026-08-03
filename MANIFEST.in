@@ -1,0 +1,4 @@
+include Makefile
+recursive-include csrc *.cpp *.cu *.cuh
+graft third_party/ThunderKittens/include
+include third_party/ThunderKittens/LICENSE
