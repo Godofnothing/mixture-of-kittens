@@ -1499,3 +1499,30 @@ def test_e2e_finiteness_different_seeds(
             )
     finally:
         functional.clear_workspace_cache()
+
+
+def test_epilogues_support_more_than_max_grid_y_tokens(
+    context: tuple[int, int, torch.device],
+) -> None:
+    _, _, device = context
+    num_local_tokens = 2 * (65_535 + 1)
+    hidden_dim = 256
+    shared = torch.full(
+        (num_local_tokens, hidden_dim),
+        1.0,
+        device=device,
+        dtype=torch.bfloat16,
+    )
+    routed = torch.full_like(shared, 2.0)
+    topk_weights = torch.full(
+        (num_local_tokens, 1),
+        0.25,
+        device=device,
+        dtype=torch.float32,
+    )
+
+    output = ops.fwd_epilogue(shared, routed, topk_weights)
+    assert torch.all(output == 1.5)
+
+    d_x = ops.bwd_epilogue(shared, routed)
+    assert torch.all(d_x == 3.0)
