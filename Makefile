@@ -40,7 +40,7 @@ endif
 all: $(OUT)
 
 test:
-	$(PYTHON) -m pytest tests/
+	$(PYTHON) -m torch.distributed.run --standalone --nproc-per-node=4 -m pytest -s tests/
 
 $(OUT): $(SRC) $(HEADERS)
 	$(NVCC) $(SRC) $(NVCCFLAGS) -o $(OUT)
