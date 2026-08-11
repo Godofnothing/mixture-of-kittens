@@ -5,6 +5,7 @@ ARCH ?= SM103
 PYTHON ?= python3
 THUNDERKITTENS_ROOT ?= ./third_party/ThunderKittens
 OUT ?= mok/_C$(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
+NPROC_PER_NODE ?= 8
 
 # Python/PyTorch binding
 PYTHON_INCLUDES ?= $(shell $(PYTHON) -c "import sysconfig; print('-I', sysconfig.get_path('include'), sep='')")
@@ -40,7 +41,7 @@ endif
 all: $(OUT)
 
 test: $(OUT)
-	$(PYTHON) -m torch.distributed.run --standalone --nproc-per-node=4 -m pytest -s tests/
+	$(PYTHON) -m torch.distributed.run --standalone --nproc-per-node=$(NPROC_PER_NODE) -m pytest -s tests/
 
 $(OUT): $(SRC) $(HEADERS)
 	$(NVCC) $(SRC) $(NVCCFLAGS) -o $(OUT)

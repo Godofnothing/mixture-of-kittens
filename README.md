@@ -1,6 +1,8 @@
 # Mixture-of-Kittens (MoK)
 
-Mixture-of-Kittens (MoK) is a fully deterministic mixture-of-experts (MoE) training megakernel built from first principles for NVL72s. MoK fuses all MoE computation and communication into a single kernel, overlapping compute and inter-GPU networking at configurable granularity, and fully eliminates CPU-GPU synchronization. It supports BF16 and MXFP8, covers both forward and backward passes, and powers production training of Composer at Cursor.
+Mixture-of-Kittens (MoK) is a fully deterministic mixture-of-experts (MoE) training megakernel optimized for B200 and B300 DGX nodes. It supports intra-host expert-parallel sizes 1, 2, 4, and 8, with compile-time-specialized peer handling for each size. MoK fuses all intra-host MoE computation and communication into a single kernel, overlapping compute and inter-GPU networking at configurable granularity, and fully eliminates CPU-GPU synchronization. It supports BF16 and MXFP8 and covers both forward and backward passes.
+
+For multi-host training, use one EP group of size 1, 2, 4, or 8 within each host and scale across hosts with a separate data-parallel or FSDP group. The megakernel intentionally does not issue its fine-grained peer loads, stores, or multicast barriers across the inter-node fabric.
 
 For a deep dive, read our [blog post](https://cursor.com/blog/mixture-of-kittens).
 
@@ -18,7 +20,7 @@ See our [blog post](https://cursor.com/blog/mixture-of-kittens) for the methodol
 
 ### Requirements
 
-- NVIDIA Blackwell SM100 or SM103 GPUs (e.g., GB200 NVL72 or GB300 NVL72)
+- One, two, four, or eight NVIDIA Blackwell SM100/SM103 GPUs from one DGX NVSwitch domain
 - Python 3.12 or later
 - PyTorch 2.10 or later
 - CUDA toolkit 13.0 or later
@@ -73,7 +75,7 @@ make
 Launch multi-GPU unit tests through `torchrun` and `pytest`:
 
 ```bash
-torchrun --standalone --nproc-per-node=<num-gpus> -m pytest -s <test-path>
+torchrun --standalone --nproc-per-node=<ep-size> -m pytest -s <test-path>
 ```
 
 ## Getting Started
@@ -89,15 +91,40 @@ With the functional API, MoK is simple to use: call `schedule(...)` once to buil
 
 ### Config
 
-MoK exposes 5 hyperparameters that can affect the performance of MoE execution. Because optimal values depend heavily on the workload, you should tune and sweep them before using MoK in production.
+MoK exposes 5 hyperparameters that can affect the performance of MoE execution. Because optimal values depend heavily on the workload and EP size, you should tune and sweep them before using MoK in production. The defaults target a full eight-GPU DGX node and are correctness-safe for smaller EP groups.
 
-- `fwd_num_comm_sms`: the number of communication SMs during forward. We recommend values between 4 and 52.
-- `bwd_num_comm_sms`: the number of communication SMs during backward. We recommend values between 4 and 52.
+- `fwd_num_comm_sms`: the number of communication SMs during forward. The DGX default is 16 (two per rank); sweep nearby even values for the actual model shape.
+- `bwd_num_comm_sms`: the number of communication SMs during backward. The DGX default is 16; sweep it independently from forward.
 - `minibatch_size`: the granularity of computation–communication overlap. This is an important parameter in MoK, and you must tune it properly to get optimal performance. We recommend values between 2048 and 16384.
 - `macrobatch_size`: the token ring buffer size. Setting this to a large value (e.g., 131072) means the ring buffer is used only once. You should maximize this value to fill the available GPU memory.
 - `schedule_capacity_multiplier`: defaults to 0.5. This should be set to the worst-case fraction of tokens routed to a single rank. Setting it to 1 assumes the absolute worst case (all tokens routed to one rank) but adds kernel scheduling overhead (due to expert padding, the actual worst case is slightly above 1.0). Ideally, use a higher value during the first steps of training when expert imbalance is bad, then reduce it to around 0.5 in later steps. Note that decreasing this value does not save GPU memory meaningfully, as the schedule table is at most a few megabytes.
 
 You can set these values when creating the `MoKConfig` dataclass, which you pass to all functional-layer functions.
+
+### Multi-host process groups
+
+Do not pass the multi-host world group to MoK. Choose `ep_size` from 1, 2, 4, or 8. All ranks must create groups in the same order; then each rank passes its own node-local group to `get_workspace`:
+
+```python
+import torch.distributed as dist
+
+rank = dist.get_rank()
+world_size = dist.get_world_size()
+ep_size = 4  # 1, 2, 4, or 8; groups must not cross a host boundary
+if world_size % ep_size:
+    raise ValueError("world size must be divisible by ep_size")
+
+ep_group = None
+for first_rank in range(0, world_size, ep_size):
+    ranks = list(range(first_rank, first_rank + ep_size))
+    group = dist.new_group(ranks=ranks)
+    if rank in ranks:
+        ep_group = group
+
+assert ep_group is not None
+```
+
+This example assumes consecutive global ranks are node-local and that group boundaries do not cross hosts, as with the usual `torchrun` rank layout. Use `ep_group` for MoK and construct the orthogonal data/FSDP groups in the training framework.
 
 ### Workspace
 
@@ -138,7 +165,7 @@ from mok import functional, ops
 config = functional.MoKConfig() # tune for your workload
 workspace = functional.get_workspace(
     config,
-    dist.group.WORLD, # replace with your expert-parallel process group
+    ep_group, # a node-local group of size 1, 2, 4, or 8
     device=x.device,
     num_local_tokens=num_local_tokens,
     hidden_size=hidden_size,

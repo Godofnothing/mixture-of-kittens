@@ -1,16 +1,30 @@
 [build-system]
-requires = ["setuptools>=80", "torch>=2.10.0,<3"]
+requires = [
+    "nvidia-cuda-cccl>=13.0,<13.1",
+    "nvidia-cuda-crt>=13.0,<13.1",
+    "nvidia-cuda-nvcc>=13.0,<13.1",
+    "nvidia-nvvm>=13.0,<13.1",
+    "setuptools>=80",
+    "torch==2.13",
+]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mixture-of-kittens"
 version = "0.1.0"
-description = "Mixture-of-Kittens: MoE Megakernel for NVL72s"
+description = "Mixture-of-Kittens: MoE Megakernel for Blackwell DGX nodes"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-dependencies = ["torch>=2.10.0,<3"]
+dependencies = [
+    "numpy>=1.26",
+    "nvidia-cuda-cccl>=13.0,<13.1",
+    "nvidia-cuda-crt>=13.0,<13.1",
+    "nvidia-cuda-nvcc>=13.0,<13.1",
+    "nvidia-nvvm>=13.0,<13.1",
+    "torch==2.13",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=9,<10"]

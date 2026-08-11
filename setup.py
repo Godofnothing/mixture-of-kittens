@@ -65,13 +65,34 @@ def check_pytorch() -> None:
         warnings.warn(f"MoK should run with PyTorch CUDA {torch.version.cuda}, but it is built and tested for CUDA 13.0.", RuntimeWarning, stacklevel=2)
 
 
-def check_nvcc() -> None:
-    nvcc_name = os.environ.get("NVCC", "nvcc")
-    nvcc = shutil.which(nvcc_name)
-    if nvcc is None:
+def find_nvcc() -> str:
+    for variable in ("MOK_NVCC", "NVCC"):
+        if nvcc_name := os.environ.get(variable):
+            nvcc = shutil.which(nvcc_name)
+            if nvcc is None:
+                raise RuntimeError(f"{variable}={nvcc_name!r} does not point to an executable.")
+            return nvcc
+
+    # nvidia-cuda-nvcc installs the CUDA toolkit inside site-packages rather
+    # than exposing nvcc as a console script.
+    packaged_nvcc = Path(sysconfig.get_path("purelib")) / "nvidia" / "cu13" / "bin" / "nvcc"
+    if packaged_nvcc.is_file() and os.access(packaged_nvcc, os.X_OK):
+        return str(packaged_nvcc)
+
+    if nvcc := shutil.which("nvcc"):
+        return nvcc
+
+    raise RuntimeError(
+        "NVCC is required, but it was not found on PATH or in the Python environment. "
+        "Install nvidia-cuda-nvcc or set MOK_NVCC to the compiler path."
+    )
+
+
+def check_nvcc(nvcc: str) -> None:
+    if not Path(nvcc).is_file():
         raise RuntimeError(
-            f"NVCC is required, but {nvcc_name!r} was not found. "
-            "Install the CUDA toolkit or ensure PATH does point to its bin directory."
+            f"NVCC is required, but {nvcc!r} is not a file. "
+            "Install the CUDA toolkit or set MOK_NVCC to the compiler path."
         )
 
     output = subprocess.check_output([nvcc, "--version"], text=True)
@@ -119,18 +140,23 @@ class MoKBuildExtension(build_ext):
         check_make()
         check_python()
         check_pytorch()
-        check_nvcc()
+        nvcc = find_nvcc()
+        check_nvcc(nvcc)
         check_thunderkittens()
 
         pytorch_includes = " ".join(f"-I{path}" for path in include_paths())
-        pytorch_libdir = " ".join(f"-L{path}" for path in library_paths())
+        library_directories = [Path(path) for path in library_paths()]
+        packaged_cuda_libdir = Path(nvcc).resolve().parent.parent / "lib"
+        if packaged_cuda_libdir.is_dir():
+            library_directories.append(packaged_cuda_libdir)
+        pytorch_libdir = " ".join(f"-L{path}" for path in library_directories)
         output_path = Path(self.get_ext_fullpath(ext.name)).resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         subprocess.check_call([
             "make",
             f"SRC={REPO_ROOT / 'csrc' / 'bindings.cu'}",
-            f"NVCC={os.environ.get('MOK_NVCC', 'nvcc')}",
+            f"NVCC={nvcc}",
             f"ARCH={os.environ.get('MOK_ARCH', 'SM103')}",
             f"PYTHON={sys.executable}",
             f"THUNDERKITTENS_ROOT={THUNDERKITTENS_ROOT}",

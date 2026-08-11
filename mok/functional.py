@@ -21,8 +21,10 @@ from .ops import (
 
 @dataclass(frozen=True, slots=True)
 class MoKConfig:
-    fwd_num_comm_sms: int = 40
-    bwd_num_comm_sms: int = 28
+    # Full-node DGX starting point. Smaller EP groups can use fewer communication
+    # SMs; the optimum depends on EP size, H/I, top-k, and routed precision.
+    fwd_num_comm_sms: int = 16
+    bwd_num_comm_sms: int = 16
     minibatch_size: int = 4096
     macrobatch_size: int = 131072
     schedule_capacity_multiplier: float = 0.5
@@ -151,8 +153,11 @@ def validate_workspace_args(
         raise RuntimeError("process group must have a nonempty group_name")
     ep_rank = dist.get_rank(group=group)
     ep_size = dist.get_world_size(group=group)
-    if ep_size not in (4, 8, 16, 32, 64):
-        raise ValueError("MoK EP size must be one of 4, 8, 16, 32, 64")
+    if ep_size not in (1, 2, 4, 8):
+        raise ValueError(
+            "MoK requires an intra-host expert-parallel group of size 1, 2, 4, or 8; "
+            "use a separate data/FSDP group across hosts"
+        )
     if not 0 <= ep_rank < ep_size:
         raise RuntimeError("current process is not a member of the EP process group")
 
