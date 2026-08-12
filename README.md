@@ -20,39 +20,71 @@ See our [blog post](https://cursor.com/blog/mixture-of-kittens) for the methodol
 
 ### Requirements
 
-- One, two, four, or eight NVIDIA Blackwell SM100/SM103 GPUs from one DGX NVSwitch domain
-- Python 3.12 or later
-- PyTorch 2.10 or later
-- CUDA toolkit 13.0 or later
+- Linux host with one, two, four, or eight NVIDIA Blackwell SM100/SM103 GPUs in one DGX NVSwitch domain
+- Python 3.12 or later, including the Python development headers (`Python.h`)
+- GNU Make and a CUDA-compatible host C++ compiler
+- CUDA 13.x NVCC. Its major and minor version must exactly match the CUDA version reported by PyTorch.
+- PyTorch 2.13 with CUDA support
+
+MoK is compiled locally during installation. It does not support CPU-only PyTorch,
+non-Linux hosts, or GPUs outside the SM100/SM103 Blackwell families.
+
+### Get the source
+
+MoK uses the ThunderKittens Git submodule. Clone the repository with its submodules:
+
+```bash
+git clone --recurse-submodules https://github.com/Godofnothing/mixture-of-kittens.git
+cd mixture-of-kittens
+```
+
+If you already cloned the repository without submodules, initialize it before
+installing:
+
+```bash
+git submodule update --init --recursive
+```
 
 ### PyTorch and CUDA
 
-The installed PyTorch build must target CUDA 13.0+, and its CUDA version must match the major and minor version of the system CUDA toolkit. MoK is built and tested against CUDA 13.0, but later versions should work as well.
+The installed PyTorch build must target CUDA 13.x, and its CUDA version must
+match NVCC exactly at the major and minor level. MoK is built and tested against
+CUDA 13.0. The project currently pins PyTorch to 2.13.
 
-For example, to install PyTorch 2.10 built against CUDA 13.0:
+Create and activate a Python environment, then install the pinned PyTorch
+version before installing MoK. Installing PyTorch first is required because the
+MoK extension imports it while building:
 
 ```bash
-python -m pip install "torch==2.10.0+cu130" --index-url https://download.pytorch.org/whl/cu130
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install "torch==2.13"
+```
+
+Use the PyTorch package appropriate for your CUDA 13.x installation. Before
+continuing, confirm that it is CUDA-enabled and that its reported CUDA version
+matches `nvcc --version`:
+
+```bash
+python -c "import torch; print(torch.__version__, torch.version.cuda)"
+nvcc --version
 ```
 
 ### Installation
 
-By default, MoK builds for SM103. Install from the repository root with either:
+From the repository root, install MoK without build isolation. This installs
+MoK's remaining Python and CUDA package dependencies and builds its CUDA
+extension. By default, it builds for SM103:
 
 ```bash
-pip install . --no-build-isolation
-```
-
-or:
-
-```bash
-python setup.py install
+python -m pip install . --no-build-isolation
 ```
 
 To build for SM100 instead, set the `MOK_ARCH` environment variable:
 
 ```bash
-MOK_ARCH=SM100 pip install . --no-build-isolation
+MOK_ARCH=SM100 python -m pip install . --no-build-isolation
 ```
 
 To verify the installation:
@@ -66,7 +98,7 @@ python -c "import mok; print(mok.__version__)"
 For development, install MoK in editable mode once, then use `make` for fast rebuilds:
 
 ```bash
-pip install -e . --no-build-isolation
+python -m pip install -e . --no-build-isolation
 make
 ```
 
@@ -75,6 +107,7 @@ make
 Launch multi-GPU unit tests through `torchrun` and `pytest`:
 
 ```bash
+python -m pip install -e ".[test]" --no-build-isolation
 torchrun --standalone --nproc-per-node=<ep-size> -m pytest -s <test-path>
 ```
 
