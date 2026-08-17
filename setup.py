@@ -16,7 +16,22 @@ from torch.utils.cpp_extension import include_paths, library_paths
 
 REPO_ROOT = Path(__file__).resolve().parent
 THUNDERKITTENS_ROOT = REPO_ROOT / "third_party" / "ThunderKittens"
-EXTENSION_NAME = "mok._C"
+SUPPORTED_ARCHS = ("SM100", "SM103")
+
+
+def requested_architectures() -> tuple[str, ...]:
+    value = os.environ.get("MOK_ARCHS", os.environ.get("MOK_ARCH", "SM100 SM103"))
+    architectures = tuple(dict.fromkeys(value.replace(",", " ").split()))
+    invalid = [arch for arch in architectures if arch not in SUPPORTED_ARCHS]
+    if not architectures or invalid:
+        raise RuntimeError(
+            f"MOK_ARCHS must contain one or more of {', '.join(SUPPORTED_ARCHS)}; "
+            f"found {value!r}."
+        )
+    return architectures
+
+
+ARCHITECTURES = requested_architectures()
 
 
 def parse_major_minor_versions(version: str, name: str) -> tuple[int, int]:
@@ -153,14 +168,15 @@ class MoKBuildExtension(build_ext):
         output_path = Path(self.get_ext_fullpath(ext.name)).resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        architecture = ext.name.rsplit("_", 1)[-1].upper()
         subprocess.check_call([
             "make",
             f"SRC={REPO_ROOT / 'csrc' / 'bindings.cu'}",
             f"NVCC={nvcc}",
-            f"ARCH={os.environ.get('MOK_ARCH', 'SM103')}",
+            f"ARCHS={architecture}",
             f"PYTHON={sys.executable}",
             f"THUNDERKITTENS_ROOT={THUNDERKITTENS_ROOT}",
-            f"OUT={output_path}",
+            f"OUT_{architecture}={output_path}",
             f"PYTHON_INCLUDES=-I{sysconfig.get_path('include')}",
             f"PYTORCH_INCLUDES={pytorch_includes}",
             f"PYTORCH_LIBDIR={pytorch_libdir}",
@@ -168,6 +184,6 @@ class MoKBuildExtension(build_ext):
 
 
 setup(
-    ext_modules=[Extension(EXTENSION_NAME, sources=[])],
+    ext_modules=[Extension(f"mok._C_{arch.lower()}", sources=[]) for arch in ARCHITECTURES],
     cmdclass={"build_ext": MoKBuildExtension},
 )

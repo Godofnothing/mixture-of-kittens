@@ -75,17 +75,22 @@ nvcc --version
 
 From the repository root, install MoK without build isolation. This installs
 MoK's remaining Python and CUDA package dependencies and builds its CUDA
-extension. By default, it builds for SM103:
+extension. By default, it builds both SM100 and SM103 variants, and selects the
+matching one at runtime:
 
 ```bash
 python -m pip install . --no-build-isolation
 ```
 
-To build for SM100 instead, set the `MOK_ARCH` environment variable:
+To build for only one architecture, set `MOK_ARCHS`:
 
 ```bash
-MOK_ARCH=SM100 python -m pip install . --no-build-isolation
+MOK_ARCHS=SM100 python -m pip install . --no-build-isolation
 ```
+
+`MOK_ARCHS=SM103` builds only SM103, while `MOK_ARCHS="SM100 SM103"` explicitly
+builds both. For direct Makefile builds, use the equivalent `ARCHS` variable,
+for example `make ARCHS=SM100` or `make ARCHS="SM100 SM103"`.
 
 To verify the installation:
 
